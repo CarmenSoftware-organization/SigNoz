@@ -14,6 +14,8 @@ volumes:
     name: signoz-telemetrykeeper-0-data
   signoz-telemetrystore-0-0-data:
     name: signoz-telemetrystore-0-0-data
+  signoz-telemetrystore-user-scripts:
+    name: signoz-telemetrystore-user-scripts
 
 configs:
 
@@ -118,6 +120,22 @@ configs:
         partition_by: toYYYYMM(event_date)
         ttl: "event_date + INTERVAL 1 DAY DELETE"
 
+  clickhouse-functions:
+    content: |
+      functions:
+        argument:
+          - name: buckets
+            type: Array(Float64)
+          - name: counts
+            type: Array(Float64)
+          - name: quantile
+            type: Float64
+        command: ./histogramQuantile
+        format: CSV
+        name: histogramQuantile
+        return_type: Float64
+        type: executable
+
 services:
 
   keeper:
@@ -155,6 +173,8 @@ services:
     depends_on:
       keeper:
         condition: service_healthy
+      user-scripts:
+        condition: service_completed_successfully
     networks:
       signoz-network:
         aliases:
@@ -162,11 +182,59 @@ services:
     configs:
       - source: clickhouse-config
         target: /etc/clickhouse-server/config-0-0.yaml
+      - source: clickhouse-functions
+        target: /etc/clickhouse-server/functions.yaml
     volumes:
       - signoz-telemetrystore-0-0-data:/var/lib/clickhouse
+      - signoz-telemetrystore-user-scripts:/var/lib/clickhouse/user_scripts:ro
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  user-scripts:
+    container_name: signoz-telemetrystore-clickhouse-user-scripts
+    image: clickhouse/clickhouse-server:25.12.5
+    restart: on-failure
+    mem_limit: 256m
+    networks:
+      - signoz-network
+    volumes:
+      - signoz-telemetrystore-user-scripts:/var/lib/clickhouse/user_scripts
+    command:
+      - bash
+      - -c
+      - |-
+        version="v0.0.1"
+        node_os=$$(uname -s | tr '[:upper:]' '[:lower:]')
+        node_arch=$$(uname -m | sed s/aarch64/arm64/ | sed s/x86_64/amd64/)
+        echo "Fetching histogram-binary for $${node_os}/$${node_arch}"
+        cd /tmp
+        wget -O histogram-quantile.tar.gz "https://github.com/SigNoz/signoz/releases/download/histogram-quantile%2F$${version}/histogram-quantile_$${node_os}_$${node_arch}.tar.gz"
+        tar -xvzf histogram-quantile.tar.gz
+        mv histogram-quantile /var/lib/clickhouse/user_scripts/histogramQuantile
+
+  migrator:
+    container_name: signoz-telemetrystore-migrator
+    image: signoz/signoz-otel-collector:v0.144.8
+    restart: on-failure
+    mem_limit: 256m
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - signoz-network
+    environment:
+      - SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_DSN=tcp://signoz-telemetrystore-clickhouse-0-0:9000
+      - SIGNOZ_OTEL_COLLECTOR_TIMEOUT=10m
+    entrypoint:
+      - /bin/sh
+    command:
+      - -c
+      - |
+        /signoz-otel-collector migrate ready &&
+        /signoz-otel-collector migrate bootstrap &&
+        /signoz-otel-collector migrate sync up &&
+        /signoz-otel-collector migrate async up
