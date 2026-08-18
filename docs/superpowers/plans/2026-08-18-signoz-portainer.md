@@ -1465,11 +1465,45 @@ docker compose -f docker-compose.signoz-portainer.yaml up -d
 ```bash
 docker compose -f docker-compose.signoz-portainer.yaml ps -a
 curl -sS -o /dev/null -w '%{http_code}\n' http://localhost:8080/api/v1/health
+```
+
+คาดหวัง: 4 service `Up`, 2 service `Exited (0)`, health `200`
+
+**ยังยิง smoke test ตอนนี้ไม่ได้** เพราะ `down -v` ลบ volume ของ SQLite ไปด้วย
+`setupCompleted` จึงกลับเป็น `false` และ collector รัน no-op pipeline อยู่
+ต้องทำตามลำดับที่ README เขียนไว้ ซึ่งก็คือประเด็นของด่านนี้พอดี — ตรวจว่า README
+พาคนทำได้จริงตั้งแต่ศูนย์ ไม่ใช่แค่มีข้อมูลครบ
+
+ทำ "หลัง deploy ขั้นที่ 1" ตามที่ README เขียน:
+
+```bash
+curl -sS http://localhost:8080/api/v1/version
+```
+
+คาดหวัง: `"setupCompleted":false`
+
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"SmokeTest#2026x","orgName":"Carmen","name":"Admin"}'
+curl -sS http://localhost:8080/api/v1/version
+```
+
+คาดหวัง: `"setupCompleted":true`
+
+รอประมาณ 30 วินาทีให้ OpAMP push pipeline จริงลงไป แล้วค่อยยิง:
+
+```bash
 ./smoke-test/send-trace.sh
 ```
 
-คาดหวัง: 4 service `Up`, 2 service `Exited (0)`, health `200`, smoke test `HTTP 200`
-และเห็น `smoke-test` ใน UI
+คาดหวัง: `HTTP 200`
+
+ถ้าได้ `HTTP 000` แปลว่า OpAMP ยังไม่ push config ใหม่ รออีก 30 วินาทีแล้วลองใหม่
+ถ้ายังไม่ได้ ให้ดู log ของ `ingester` หา `Config has changed, reloading`
+
+**ด่านนี้คือการพิสูจน์ว่า README ใช้งานได้จริง** ถ้าต้องทำอะไรที่ README ไม่ได้เขียนไว้
+เพื่อให้ผ่าน แปลว่า README ยังไม่ครบ — ให้แก้ README ไม่ใช่แค่ทำแล้วผ่านไป
 
 - [ ] **Step 3: ตรวจว่าไม่มีอะไรที่ Portainer ใช้ไม่ได้หลงเหลือ**
 
