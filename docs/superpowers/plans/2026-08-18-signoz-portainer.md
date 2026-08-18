@@ -1476,6 +1476,12 @@ curl -sS -o /dev/null -w '%{http_code}\n' http://localhost:8080/api/v1/health
 
 ทำ "หลัง deploy ขั้นที่ 1" ตามที่ README เขียน:
 
+ตั้งรหัสผ่านชั่วคราวไว้ใน env ก่อน อย่าเขียนค่าจริงลงไฟล์ใดๆ ในโปรเจกต์:
+
+```bash
+SMOKE_PW=$(head -c 18 /dev/urandom | base64 | tr -d "\n")Aa1#
+```
+
 ```bash
 curl -sS http://localhost:8080/api/v1/version
 ```
@@ -1485,7 +1491,7 @@ curl -sS http://localhost:8080/api/v1/version
 ```bash
 curl -sS -X POST http://localhost:8080/api/v1/register \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@example.com","password":"SmokeTest#2026x","orgName":"Carmen","name":"Admin"}'
+  -d "{\"email\":\"admin@example.com\",\"password\":\"$SMOKE_PW\",\"orgName\":\"Carmen\",\"name\":\"Admin\"}"
 curl -sS http://localhost:8080/api/v1/version
 ```
 
