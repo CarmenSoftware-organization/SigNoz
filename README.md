@@ -186,14 +186,21 @@ Carmen รันคนละเครื่อง ให้ตั้ง endpoint
 
 | Repo | Tech | endpoint |
 |---|---|---|
-| `api-gateway-apisix` | APISIX | เปิด plugin `opentelemetry` ชี้ `http://<host>:4318` — **เริ่มที่นี่ก่อน** ได้ trace ครอบทุก request โดยไม่แก้โค้ด |
-| `carmen-turborepo-backend-v2` | NestJS + Bun | `OTEL_EXPORTER_OTLP_ENDPOINT=http://<host>:4318` |
-| `carmen` (micro-business) | NestJS + Prisma | เหมือนบน + `@prisma/instrumentation` |
-| `micro-cronjobs` / `micro-report` / `micro-data` | Go + Gin | `otelgin` + `otlptracegrpc` ชี้ `<host>:4317` |
+| `micro-cronjobs` / `micro-report` / `micro-data` | Go + Gin | `otelgin` + `otlptracegrpc` ชี้ `<host>:4317` — **เริ่มที่นี่ก่อน** |
+| `carmen` (micro-business) | NestJS + Prisma | `OTEL_EXPORTER_OTLP_ENDPOINT=http://<host>:4318` + `@prisma/instrumentation` |
+| `carmen-turborepo-backend-v2` | NestJS + Bun | เหมือนบน แต่ดูข้อควรรู้เรื่อง Bun ด้านล่างก่อน |
+
+**ทำไมเริ่มที่ Go:** auto-instrumentation ของ Go เป็น middleware ที่เรียกใช้ตรงๆ
+ไม่ต้องพึ่งกลไก patch runtime แบบฝั่ง Node จึงไม่มีเงื่อนไขซ่อนอยู่
+ได้ span จริงเร็วที่สุดและใช้ยืนยันว่าฝั่ง SigNoz พร้อมรับข้อมูลแล้ว
+ก่อนไปเจอความซับซ้อนของฝั่ง JavaScript
 
 **ข้อควรรู้เรื่อง Bun:** OTel auto-instrumentation ของ Node พึ่งการ monkey-patch `require`
 ซึ่ง Bun รองรับไม่ครบ อาจเก็บ span ไม่ได้แม้ SDK จะ start ผ่าน
-ทางถอย: พึ่ง trace จาก APISIX ที่ edge แทน หรือ manual instrumentation เฉพาะจุด
+ทางออกเดียวที่เหลือคือ manual instrumentation เฉพาะจุดที่สำคัญ — สร้าง span เอง
+ตรง handler และ query ที่อยากเห็น ไม่พึ่ง auto-instrumentation
+(ถ้ามี reverse proxy หรือ gateway คั่นหน้าอยู่ การเก็บ trace ที่ชั้นนั้นแทน
+จะได้ coverage ครบโดยไม่ต้องแตะโค้ด แต่ตอนนี้ยังไม่มีในสถาปัตยกรรม)
 
 **ถ้าจะเอา React frontend เข้าด้วย** ต้องเพิ่ม CORS ใน `configs.ingester-config`
 ที่ receiver `otlp.protocols.http` ไม่งั้น browser จะโดนปฏิเสธตอน preflight `OPTIONS`:

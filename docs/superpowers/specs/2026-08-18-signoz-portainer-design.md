@@ -271,7 +271,7 @@ Carmen dev services รันคนละเครื่องกับ Portaine
 | Port | Protocol | ใช้กับ |
 |---|---|---|
 | `4317` | OTLP/gRPC | Go services (`micro-cronjobs`, `micro-report`, `micro-data`) |
-| `4318` | OTLP/HTTP | NestJS, APISIX, browser |
+| `4318` | OTLP/HTTP | NestJS, browser |
 
 **ไม่มี authentication** — SigNoz OSS ไม่มี ingestion key ใครยิงถึง port นี้ยัดข้อมูลเข้ามาได้ไม่จำกัด
 ถ้าเครื่องมี public IP ให้ตั้ง `SIGNOZ_BIND_ADDR` เป็น IP ของ LAN interface
@@ -280,17 +280,17 @@ Carmen dev services รันคนละเครื่องกับ Portaine
 
 | Repo | Tech | วิธีต่อ |
 |---|---|---|
-| `api-gateway-apisix` | APISIX | เปิด plugin `opentelemetry` — **แนะนำเริ่มที่นี่** ได้ trace ครอบทุก request โดยไม่แก้โค้ด |
 | `carmen-turborepo-backend-v2` | NestJS 11 + Bun | `@opentelemetry/sdk-node` + `OTEL_EXPORTER_OTLP_ENDPOINT` — ดูความเสี่ยงด้านล่าง |
 | `carmen` (micro-business) | NestJS + Prisma | เหมือนบน + `@prisma/instrumentation` |
-| `micro-cronjobs` / `micro-report` / `micro-data` | Go + Gin | `otelgin` + `otlptracegrpc` → `:4317` |
+| `micro-cronjobs` / `micro-report` / `micro-data` | Go + Gin | `otelgin` + `otlptracegrpc` → `:4317` — **แนะนำเริ่มที่นี่** ไม่มีเงื่อนไข runtime ซ่อนอยู่ |
 | `carmen-inventory-frontend-react` | React 19 + Vite | ต้องเพิ่ม CORS ที่ receiver ก่อน ดูด้านล่าง |
 
 **ความเสี่ยง: OTel auto-instrumentation บน Bun**
 `carmen-turborepo-backend-v2` รันบน Bun ซึ่ง OTel auto-instrumentation ของ Node
 พึ่งการ monkey-patch `require` (`require-in-the-middle`) ที่ Bun รองรับไม่ครบ
 อาจเก็บ span ของ HTTP/Prisma ไม่ได้เลยแม้ SDK จะ start ผ่าน
-ทางถอย: (ก) พึ่ง trace จาก APISIX ที่ edge แทน หรือ (ข) manual instrumentation เฉพาะจุดสำคัญ
+ทางถอย: manual instrumentation เฉพาะจุดสำคัญ — สถาปัตยกรรมตอนนี้ไม่มีชั้น gateway
+ที่จะเก็บ trace แทนได้ จึงไม่มีทางเลือกแบบไม่แตะโค้ด
 
 **ถ้าจะเอา React frontend เข้าด้วย ต้องเพิ่ม CORS**
 receiver ตัว default ไม่มี `cors` เลย browser จะโดนปฏิเสธตอน preflight `OPTIONS`
