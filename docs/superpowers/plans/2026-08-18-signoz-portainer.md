@@ -31,6 +31,10 @@
   migrator `256m`, user-scripts `256m`
 - **ห้ามใช้ `max_server_memory_usage_to_ram_ratio`** ใช้ `max_server_memory_usage` เป็นไบต์ตายตัวเท่านั้น
   (ratio อ่าน RAM ของ host ไม่ใช่ cgroup)
+- **`background_pool_size` x `background_merges_mutations_concurrency_ratio` ต้อง >= 25**
+  ClickHouse เช็คตอน boot ที่ `MergeTreeSettings.cpp` sanityCheck เทียบกับ default ของ
+  `number_of_free_entries_in_pool_to_execute_optimize_entire_partition` (25) ถ้าต่ำกว่านี้
+  server จะไม่ start เลย (exit 36) ค่าที่ใช้: 4 x 7 = 28
 - **ห้ามมี relative bind mount ใดๆ** ใน compose ไฟล์ deliverable — config ทุกตัวต้องผ่าน `configs.content`
 - **ห้ามมี `${...}` ที่ไม่ใช่ตัวแปรของ Portainer** อยู่ใน `configs.content`
 - **ห้ามใส่ `name:` ระดับบนสุด** ใน compose (ให้ Portainer ตั้งชื่อ stack เอง)
@@ -283,7 +287,7 @@ configs:
       mark_cache_size: 268435456
       index_mark_cache_size: 134217728
       background_pool_size: 4
-      background_merges_mutations_concurrency_ratio: 2
+      background_merges_mutations_concurrency_ratio: 7
       background_common_pool_size: 2
       background_schedule_pool_size: 32
       profiles:
@@ -422,22 +426,24 @@ docker exec signoz-telemetrystore-clickhouse-0-0 clickhouse-client -q \
 docker exec signoz-telemetrystore-clickhouse-0-0 clickhouse-client -q \
   "SELECT name, value FROM system.server_settings
    WHERE name IN ('max_server_memory_usage','mark_cache_size','index_mark_cache_size',
-                  'background_pool_size','background_common_pool_size','background_schedule_pool_size')
+                  'background_pool_size','background_merges_mutations_concurrency_ratio',
+                  'background_common_pool_size','background_schedule_pool_size')
    ORDER BY name FORMAT PrettyCompact"
 ```
 
 คาดหวังค่าเหล่านี้เป๊ะๆ:
 
 ```
-background_common_pool_size     2
-background_pool_size            4
-background_schedule_pool_size   32
+background_common_pool_size                      2
+background_merges_mutations_concurrency_ratio    7
+background_pool_size                             4
+background_schedule_pool_size                    32
 index_mark_cache_size           134217728
 mark_cache_size                 268435456
 max_server_memory_usage         1073741824
 ```
 
-ถ้าได้ค่า default (`16`, `8`, `512`, `5368709120`, `0`) แปลว่า ClickHouse ไม่ได้อ่าน
+ถ้าได้ค่า default (`16`, `2`, `8`, `512`, `5368709120`, `0`) แปลว่า ClickHouse ไม่ได้อ่าน
 config ของเรา ให้เช็คว่า `CLICKHOUSE_CONFIG` ชี้ path ถูกต้องหรือไม่ **อย่าไปต่อจนกว่าจะผ่าน**
 
 - [ ] **Step 6: ยืนยันว่า system log tables ถูกปิดจริง**

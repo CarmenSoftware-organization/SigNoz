@@ -130,11 +130,17 @@ SigNoz ใช้ที่นี่เก็บแค่ dashboard / alert rule /
 | `mark_cache_size` | `5 GiB` | `268435456` (256 MiB) | default ตั้งมาสำหรับ server ระดับ production |
 | `index_mark_cache_size` | `5 GiB` | `134217728` (128 MiB) | ตัวคู่ของ mark cache รวมกัน default 10 GiB |
 | `background_pool_size` | `16` | `4` | จำกัด merge ที่รันพร้อมกัน |
-| `background_merges_mutations_concurrency_ratio` | `2` | `2` | คงเดิม |
+| `background_merges_mutations_concurrency_ratio` | `2` | `7` | ผลคูณกับ pool size ต้อง >= 25 ไม่งั้น ClickHouse ไม่ start |
 | `background_common_pool_size` | `8` | `2` | งาน GC ของ MergeTree |
 | `background_schedule_pool_size` | `512` | `32` | 512 thread เป็นตัวเลขสำหรับ cluster ใหญ่ |
 
 `uncompressed_cache_size` **ไม่ต้องตั้ง** — `DEFAULT_UNCOMPRESSED_CACHE_MAX_SIZE` เป็น `0` อยู่แล้ว
+
+**ข้อบังคับที่ค้นพบตอน implement:** `MergeTreeSettingsImpl::sanityCheck` เช็ค 3 เงื่อนไข
+เทียบกับ `background_pool_size` x `background_merges_mutations_concurrency_ratio` โดย default
+ของตัวเทียบคือ `8`, `20`, `25` ตามลำดับ **ผลคูณจึงต้อง >= 25** ค่าแรกที่ออกแบบไว้ (4 x 2 = 8)
+ทำให้ ClickHouse ไม่ start เลย (exit 36) จึงขึ้น ratio เป็น 7 แทนการขึ้น pool size
+เพราะ pool size คือจำนวน thread ที่ทำงานจริง ส่วน ratio คุมแค่จำนวน task ที่ค้างในคิวได้
 
 ### ปิด system log tables ของ ClickHouse
 
