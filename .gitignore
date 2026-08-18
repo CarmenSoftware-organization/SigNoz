@@ -1,3 +1,11 @@
 .remember/
 pours/
 casting.yaml.lock
+
+# ค่า config จริงของแต่ละเครื่อง — .env.example คือ template ที่ commit ได้
+.env
+.env.local
+.env.*.local
+
+# macOS
+.DS_Store
