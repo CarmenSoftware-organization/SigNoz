@@ -686,7 +686,10 @@ git commit -m "feat: add schema layer (histogramQuantile UDF + ClickHouse migrat
 
 ความต่างจากต้นฉบับ 3 จุด — **ห้ามลืม**:
 1. `low_cardinal_exception_grouping: false` (ต้นฉบับเป็น `${env:...}` ซึ่งทำให้ Compose parse ไม่ผ่าน)
-2. เพิ่ม processor `memory_limiter` และใส่เป็น **ตัวแรก** ของทุก pipeline
+2. เพิ่ม processor `memory_limiter` และใส่เป็น **ตัวแรก** ของทุก pipeline ที่รับจาก
+   receiver `otlp` คือ `traces`, `metrics`, `logs` — **ไม่ใส่ใน `metrics/meter`**
+   เพราะ pipeline นั้นรับจาก connector `signozmeter` ซึ่งข้อมูลผ่าน memory_limiter
+   มาแล้วจาก pipeline ต้นทาง ใส่ซ้ำจะนับ memory ซ้ำ (YAML ข้างล่างถูกต้องแล้ว ทำตามนั้น)
 3. ลด `send_batch_size` จาก 50000 → 5000 และ batch/meter จาก 20000 → 2000
 
 ```yaml
