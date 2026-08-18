@@ -16,6 +16,8 @@ volumes:
     name: signoz-telemetrystore-0-0-data
   signoz-telemetrystore-user-scripts:
     name: signoz-telemetrystore-user-scripts
+  signoz-metastore-sqlite-0-data:
+    name: signoz-metastore-sqlite-0-data
 
 configs:
 
@@ -136,6 +138,152 @@ configs:
         return_type: Float64
         type: executable
 
+  ingester-config:
+    content: |
+      connectors:
+        signozmeter:
+          metrics_flush_interval: 1h
+          dimensions:
+            - name: service.name
+            - name: deployment.environment
+            - name: host.name
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: "0.0.0.0:4317"
+            http:
+              endpoint: "0.0.0.0:4318"
+      processors:
+        memory_limiter:
+          check_interval: 2s
+          limit_mib: 300
+          spike_limit_mib: 60
+        batch:
+          send_batch_size: 5000
+          send_batch_max_size: 5500
+          timeout: 5s
+        batch/meter:
+          send_batch_size: 2000
+          send_batch_max_size: 2500
+          timeout: 5s
+        signozspanmetrics/delta:
+          metrics_exporter: signozclickhousemetrics
+          metrics_flush_interval: 60s
+          latency_histogram_buckets:
+            - 100us
+            - 1ms
+            - 2ms
+            - 6ms
+            - 10ms
+            - 50ms
+            - 100ms
+            - 250ms
+            - 500ms
+            - 1000ms
+            - 1400ms
+            - 2000ms
+            - 5s
+            - 10s
+            - 20s
+            - 40s
+            - 60s
+          dimensions_cache_size: 100000
+          aggregation_temporality: AGGREGATION_TEMPORALITY_DELTA
+          enable_exp_histogram: true
+          dimensions:
+            - name: service.namespace
+              default: default
+            - name: deployment.environment
+              default: default
+            - name: signoz.collector.id
+            - name: service.version
+      exporters:
+        clickhousetraces:
+          datasource: tcp://signoz-telemetrystore-clickhouse-0-0:9000/signoz_traces
+          low_cardinal_exception_grouping: false
+          use_new_schema: true
+          timeout: 45s
+          sending_queue:
+            enabled: false
+        signozclickhousemetrics:
+          dsn: tcp://signoz-telemetrystore-clickhouse-0-0:9000/signoz_metrics
+          timeout: 45s
+          sending_queue:
+            enabled: false
+        clickhouselogsexporter:
+          dsn: tcp://signoz-telemetrystore-clickhouse-0-0:9000/signoz_logs
+          use_new_schema: true
+          timeout: 45s
+          sending_queue:
+            enabled: false
+        signozclickhousemeter:
+          dsn: tcp://signoz-telemetrystore-clickhouse-0-0:9000/signoz_meter
+          timeout: 45s
+          sending_queue:
+            enabled: false
+        metadataexporter:
+          enabled: true
+          dsn: tcp://signoz-telemetrystore-clickhouse-0-0:9000/signoz_metadata
+          timeout: 45s
+          cache:
+            provider: in_memory
+      extensions:
+        signoz_health_check:
+          endpoint: "0.0.0.0:13133"
+        pprof:
+          endpoint: "0.0.0.0:1777"
+      service:
+        telemetry:
+          logs:
+            encoding: json
+        extensions:
+          - signoz_health_check
+          - pprof
+        pipelines:
+          traces:
+            receivers:
+              - otlp
+            processors:
+              - memory_limiter
+              - signozspanmetrics/delta
+              - batch
+            exporters:
+              - clickhousetraces
+              - signozmeter
+              - metadataexporter
+          metrics:
+            receivers:
+              - otlp
+            processors:
+              - memory_limiter
+              - batch
+            exporters:
+              - signozclickhousemetrics
+              - signozmeter
+              - metadataexporter
+          logs:
+            receivers:
+              - otlp
+            processors:
+              - memory_limiter
+              - batch
+            exporters:
+              - clickhouselogsexporter
+              - signozmeter
+              - metadataexporter
+          metrics/meter:
+            receivers:
+              - signozmeter
+            processors:
+              - batch/meter
+            exporters:
+              - signozclickhousemeter
+
+  ingester-opamp:
+    content: |
+      server_endpoint: ws://signoz-signoz-0:4320/v1/opamp
+
 services:
 
   keeper:
@@ -238,3 +386,64 @@ services:
         /signoz-otel-collector migrate bootstrap &&
         /signoz-otel-collector migrate sync up &&
         /signoz-otel-collector migrate async up
+
+  signoz:
+    container_name: signoz-signoz-0
+    image: signoz/signoz:v0.137.1
+    restart: unless-stopped
+    mem_limit: 600m
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    environment:
+      - SIGNOZ_SQLSTORE_PROVIDER=sqlite
+      - SIGNOZ_SQLSTORE_SQLITE_PATH=/var/lib/signoz/signoz.db
+      - SIGNOZ_TELEMETRYSTORE_PROVIDER=clickhouse
+      - SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN=tcp://signoz-telemetrystore-clickhouse-0-0:9000
+    ports:
+      - "8080:8080"
+    volumes:
+      - signoz-metastore-sqlite-0-data:/var/lib/signoz
+    networks:
+      signoz-network:
+        aliases:
+          - signoz-signoz-0
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  ingester:
+    container_name: signoz-ingester
+    image: signoz/signoz-otel-collector:v0.144.8
+    restart: unless-stopped
+    mem_limit: 400m
+    depends_on:
+      signoz:
+        condition: service_healthy
+    environment:
+      - SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_DSN=tcp://signoz-telemetrystore-clickhouse-0-0:9000
+      - SIGNOZ_OTEL_COLLECTOR_TIMEOUT=10m
+    entrypoint:
+      - /bin/sh
+    command:
+      - -c
+      - |
+        /signoz-otel-collector migrate sync check &&
+        /signoz-otel-collector --config=/etc/otel-collector-config.yaml --manager-config=/etc/opamp-config.yaml --copy-path=/var/tmp/collector-config.yaml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    configs:
+      - source: ingester-config
+        target: /etc/otel-collector-config.yaml
+      - source: ingester-opamp
+        target: /etc/opamp-config.yaml
+    networks:
+      signoz-network:
+        aliases:
+          - signoz-ingester
