@@ -642,10 +642,24 @@ docker exec signoz-telemetrystore-clickhouse-0-0 clickhouse-client -q "SHOW DATA
 
 ```bash
 docker exec signoz-telemetrystore-clickhouse-0-0 clickhouse-client -q \
-  "SELECT histogramQuantile([1.0, 2.0, 5.0], [10.0, 20.0, 30.0], 0.5)"
+  "SELECT histogramQuantile([1.0, 2.0, 5.0, inf], [10.0, 40.0, 80.0, 100.0], 0.5)"
 ```
 
-คาดหวัง: ตัวเลข float หนึ่งตัว (ไม่ใช่ error)
+คาดหวัง: **`2.75` เป๊ะๆ**
+
+input ต้องเป็น cumulative histogram แบบ Prometheus คือ count เพิ่มขึ้นเรื่อยๆ
+และ bucket สุดท้ายเป็น `inf` ถ้าใส่ array ที่ไม่ตรง domain นี้ binary จะคืน `nan`
+ซึ่งเป็นค่า Float64 ที่ถูกต้องตาม IEEE-754 ไม่ใช่ error — จึงผ่าน gate แบบ
+"ขอแค่ไม่ error" ได้ทั้งที่ยังไม่ได้พิสูจน์ว่าคำนวณถูก ค่า `2.75` จึงเป็น gate ที่แท้จริง
+
+ตรวจเพิ่มอีกเคสเพื่อความมั่นใจ:
+
+```bash
+docker exec signoz-telemetrystore-clickhouse-0-0 clickhouse-client -q \
+  "SELECT histogramQuantile([0.0, 1.0, 2.0, 5.0, inf], [0.0, 10.0, 20.0, 30.0, 30.0], 0.5)"
+```
+
+คาดหวัง: **`1.5`**
 
 ถ้าได้ `Unknown function histogramQuantile` แปลว่า `functions.yaml` ไม่ได้ถูกอ่าน
 ถ้าได้ error ประมาณ `Cannot execute` แปลว่า binary ไม่ได้อยู่ใน volume —
