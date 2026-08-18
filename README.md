@@ -54,15 +54,15 @@ Compose ที่ฝังมาที่ไหนใน UI เลย และ�
 | ตัวแปร | Default | ใช้ทำอะไร |
 |---|---|---|
 | `SIGNOZ_BIND_ADDR` | `0.0.0.0` | IP ที่ผูก port ไว้ ใส่ IP ของ LAN ถ้าเครื่องมี public IP |
-| `SIGNOZ_UI_PORT` | `8080` | port ของ UI เปลี่ยนถ้าชนกับ service อื่น |
-| `SIGNOZ_OTLP_GRPC_PORT` | `4317` | รับ telemetry แบบ gRPC |
-| `SIGNOZ_OTLP_HTTP_PORT` | `4318` | รับ telemetry แบบ HTTP |
+| `SIGNOZ_UI_PORT` | `48080` | port ของ UI เปลี่ยนถ้าชนกับ service อื่น |
+| `SIGNOZ_OTLP_GRPC_PORT` | `40317` | รับ telemetry แบบ gRPC |
+| `SIGNOZ_OTLP_HTTP_PORT` | `40318` | รับ telemetry แบบ HTTP |
 
 ใน URL และคำสั่งข้างล่างนี้ `<host>` = IP หรือ hostname ของเครื่อง Portainer
-และ `<ui-port>` = `8080` หรือค่าที่ตั้งไว้ใน `SIGNOZ_UI_PORT`
-(port 4317/4318 ก็เปลี่ยนตาม `SIGNOZ_OTLP_*_PORT` เหมือนกัน)
+และ `<ui-port>` = `48080` หรือค่าที่ตั้งไว้ใน `SIGNOZ_UI_PORT`
+(port 40317/40318 ก็เปลี่ยนตาม `SIGNOZ_OTLP_*_PORT` เหมือนกัน)
 
-**OTLP ไม่มี authentication** — SigNoz OSS ไม่มี ingestion key ใครที่ยิงถึง port 4317/4318
+**OTLP ไม่มี authentication** — SigNoz OSS ไม่มี ingestion key ใครที่ยิงถึง port 40317/40318
 ยัดข้อมูลเข้ามาได้ไม่จำกัดจนดิสก์เต็ม ถ้าเครื่องอยู่บนอินเทอร์เน็ต ให้ตั้ง
 `SIGNOZ_BIND_ADDR` เป็น IP ของ LAN interface หรือกันด้วย firewall
 
@@ -91,7 +91,7 @@ server แล้ว server ส่ง **effective config** กลับลงม�
 effective config ที่ส่งกลับมาจึงเป็นเวอร์ชันที่ **ทุก pipeline ถูกเขียนใหม่ให้เหลือ receiver
 กับ exporter เป็น `nop` อย่างเดียว** ผลคือ receiver `otlp` ที่ใน compose ต่อเข้า pipeline
 `traces` / `metrics` / `logs` ไว้ครบทุกเส้นแล้ว กลายเป็นไม่ได้ต่อกับอะไรเลยตอนรันจริง
-**จึงไม่มีอะไร listen บน 4317/4318**
+**จึงไม่มีอะไร listen บน OTLP port**
 
 จุดที่หลอกตาคือ `otlp` **ยังถูกนิยามอยู่ในไฟล์ effective config เหมือนเดิม** ถ้าเปิดไฟล์ไปดู
 ต้องดูที่ `service.pipelines` ไม่ใช่ที่ block `receivers:` ตอนยังไม่มี organization จะเห็นแบบนี้:
@@ -128,7 +128,7 @@ password ต้องยาว >= 12 ตัวและมีตัวพิม�
 
 หลังสร้างเสร็จรอประมาณ 30 วินาที (รอบ poll ของ OpAMP) `signoz` จะ push pipeline จริงลงไป
 ยืนยันได้จาก log ของ `ingester` ที่จะขึ้น `Config has changed, reloading` ตามด้วย
-`Starting GRPC/HTTP server` จากนั้น 4317/4318 ถึงจะเปิดรับจริง
+`Starting GRPC/HTTP server` จากนั้น OTLP port ถึงจะเปิดรับจริง
 
 ตรวจสถานะได้จาก:
 
@@ -161,17 +161,17 @@ ClickHouse ลบข้อมูลด้วย TTL ที่ทำงานต�
 ยิง trace ปลอมเข้าไป 1 span ไม่ต้องลง SDK อะไรเลย
 
 script นี้รันจาก **เครื่องของเราที่ clone repo นี้ไว้** ไม่ใช่บนเครื่อง Portainer
-(เครื่องนั้นไม่มี shell ให้ใช้อยู่แล้ว) ขอแค่ยิงถึง port 4318 ของ host ได้ก็พอ:
+(เครื่องนั้นไม่มี shell ให้ใช้อยู่แล้ว) ขอแค่ยิงถึง port 40318 ของ host ได้ก็พอ:
 
 ```bash
-./smoke-test/send-trace.sh http://<host>:4318
+./smoke-test/send-trace.sh http://<host>:40318
 ```
 
 ถ้ามี shell แต่ไม่ได้ clone repo ไว้ ใช้ `curl` เปล่าๆ ก็ได้ผลเหมือนกัน:
 
 ```bash
 NOW=$(( $(date +%s) * 1000000000 ))
-curl -sS -w '\nHTTP %{http_code}\n' -X POST "http://<host>:4318/v1/traces" \
+curl -sS -w '\nHTTP %{http_code}\n' -X POST "http://<host>:40318/v1/traces" \
   -H 'Content-Type: application/json' \
   -d "{\"resourceSpans\":[{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"smoke-test\"}}]},\"scopeSpans\":[{\"spans\":[{\"traceId\":\"5b8efff798038103d269b633813fc60c\",\"spanId\":\"eee19b7ec3c1b174\",\"name\":\"smoke-test-span\",\"kind\":2,\"startTimeUnixNano\":\"$(( NOW - 500000000 ))\",\"endTimeUnixNano\":\"$NOW\",\"status\":{\"code\":1}}]}]}]}"
 ```
@@ -186,8 +186,8 @@ Carmen รันคนละเครื่อง ให้ตั้ง endpoint
 
 | Repo | Tech | endpoint |
 |---|---|---|
-| `micro-cronjobs` / `micro-report` / `micro-data` | Go + Gin | `otelgin` + `otlptracegrpc` ชี้ `<host>:4317` — **เริ่มที่นี่ก่อน** |
-| `carmen` (micro-business) | NestJS + Prisma | `OTEL_EXPORTER_OTLP_ENDPOINT=http://<host>:4318` + `@prisma/instrumentation` |
+| `micro-cronjobs` / `micro-report` / `micro-data` | Go + Gin | `otelgin` + `otlptracegrpc` ชี้ `<host>:40317` — **เริ่มที่นี่ก่อน** |
+| `carmen` (micro-business) | NestJS + Prisma | `OTEL_EXPORTER_OTLP_ENDPOINT=http://<host>:40318` + `@prisma/instrumentation` |
 | `carmen-turborepo-backend-v2` | NestJS + Bun | เหมือนบน แต่ดูข้อควรรู้เรื่อง Bun ด้านล่างก่อน |
 
 **ทำไมเริ่มที่ Go:** auto-instrumentation ของ Go เป็น middleware ที่เรียกใช้ตรงๆ
@@ -234,7 +234,7 @@ Carmen รันคนละเครื่อง ให้ตั้ง endpoint
 | `migrator` restart วนไม่จบ | ClickHouse ยังไม่พร้อม | ปกติหายเอง ถ้าเกิน 5 นาทีให้ดู log |
 | UI ขึ้นแต่ไม่มีข้อมูล / query error | ดิสก์ **ใกล้** เต็ม ClickHouse เป็น read-only | ลด retention แล้วรอ merge รอบถัดไป |
 | เหมือนแถวบน แต่ลด retention แล้วรอเป็นชั่วโมงดิสก์ก็ไม่ลดสักที | ดิสก์เต็มจริง (เหลือ 0) merge เขียน part ใหม่ไม่ได้ TTL เลยไม่ได้ทำงาน | ต้องคืนพื้นที่ด้วยมือก่อน — ดู "ดิสก์เต็มจริง" ข้างล่าง |
-| ยิง trace แล้ว `curl: (56) Connection reset by peer` ที่ 4318 | ยังไม่ได้สร้าง admin account → collector รัน no-op pipeline ไม่มีอะไร listen | ทำขั้นตอน "หลัง deploy ขั้นที่ 1" ให้เสร็จก่อน |
+| ยิง trace แล้ว `curl: (56) Connection reset by peer` ที่ 40318 | ยังไม่ได้สร้าง admin account → collector รัน no-op pipeline ไม่มีอะไร listen | ทำขั้นตอน "หลัง deploy ขั้นที่ 1" ให้เสร็จก่อน |
 | ยิง trace แล้ว HTTP 200 แต่ UI ไม่เห็น service | `ingester` เขียนลง ClickHouse ไม่ได้ | ดู log ของ `ingester` หาคำว่า `clickhouse` |
 | `keeper` ตาย exit 137 ก่อนตัวอื่น | 200m คือ limit ที่ตึงที่สุดในทั้ง stack | ขึ้นเป็น `300m` — งบรวมยังเหลือเยอะ |
 | `ingester` exit 137 หรือ restart ซ้ำๆ ตอนมี traffic จริง | cache ของ span metrics โตตาม cardinality ของ span ไม่ใช่ตาม rate | ลด `dimensions_cache_size` ใน `configs.ingester-config` ลงอีก หรือขึ้น `mem_limit` ของ `ingester` เป็น `600m` (งบรับไหว) |

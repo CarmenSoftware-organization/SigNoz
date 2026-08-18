@@ -10,6 +10,12 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-18-signoz-portainer-design.md`
 
+> **หมายเหตุหลังส่งมอบ (2026-08-18):** default ของ host port เปลี่ยนหลังแผนนี้ทำงานจบแล้ว
+> เป็น `SIGNOZ_UI_PORT=48080`, `SIGNOZ_OTLP_GRPC_PORT=40317`, `SIGNOZ_OTLP_HTTP_PORT=40318`
+> เอกสารนี้ยังคงตัวเลขเดิม (8080/4317/4318) ไว้ตามที่ใช้ตอนรันจริง เพราะเป็นบันทึกของสิ่งที่เกิดขึ้น
+> ค่าที่ถูกต้องปัจจุบันอยู่ใน spec, `README.md` และ `.env.example`
+> (port ฝั่งในคอนเทนเนอร์ยังเป็น 8080/4317/4318 เหมือนเดิม เปลี่ยนแค่ฝั่ง host)
+
 ## หมายเหตุเรื่องการทดสอบ
 
 โปรเจกต์นี้เป็น infrastructure config ไม่มี automated test และตาม working preference

@@ -3,10 +3,10 @@
 # ingester -> ClickHouse -> query -> UI ว่าทำงานครบทั้งเส้น
 #
 # ใช้: ./smoke-test/send-trace.sh [endpoint]
-#      ./smoke-test/send-trace.sh http://192.168.1.50:4318
+#      ./smoke-test/send-trace.sh http://192.168.1.50:40318
 set -eu
 
-ENDPOINT="${1:-http://localhost:4318}"
+ENDPOINT="${1:-http://localhost:40318}"
 
 NOW_NS=$(( $(date +%s) * 1000000000 ))
 START_NS=$(( NOW_NS - 500000000 ))
@@ -60,7 +60,7 @@ if [ "${HTTP_CODE}" = "000" ]; then
 สาเหตุที่พบบ่อยที่สุดคือยังไม่ได้สร้าง admin account ของ SigNoz
 collector ตัวนี้รับ config จาก OpAMP server ที่ฝังอยู่ใน signoz
 ตราบใดที่ยังไม่มี organization มันจะรัน no-op pipeline
-และไม่มีอะไร listen บน 4317/4318 เลย
+และไม่มีอะไร listen บน OTLP port เลย
 
 แก้: เปิด SigNoz UI แล้วสมัคร admin หรือเรียก API
   curl -X POST <signoz-url>/api/v1/register -H 'Content-Type: application/json' \

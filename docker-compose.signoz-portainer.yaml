@@ -403,7 +403,7 @@ services:
       - SIGNOZ_TELEMETRYSTORE_PROVIDER=clickhouse
       - SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN=tcp://signoz-telemetrystore-clickhouse-0-0:9000
     ports:
-      - "${SIGNOZ_BIND_ADDR:-0.0.0.0}:${SIGNOZ_UI_PORT:-8080}:8080"
+      - "${SIGNOZ_BIND_ADDR:-0.0.0.0}:${SIGNOZ_UI_PORT:-48080}:8080"
     volumes:
       - signoz-metastore-sqlite-0-data:/var/lib/signoz
     networks:
@@ -436,8 +436,8 @@ services:
         /signoz-otel-collector migrate sync check &&
         /signoz-otel-collector --config=/etc/otel-collector-config.yaml --manager-config=/etc/opamp-config.yaml --copy-path=/var/tmp/collector-config.yaml
     ports:
-      - "${SIGNOZ_BIND_ADDR:-0.0.0.0}:${SIGNOZ_OTLP_GRPC_PORT:-4317}:4317"
-      - "${SIGNOZ_BIND_ADDR:-0.0.0.0}:${SIGNOZ_OTLP_HTTP_PORT:-4318}:4318"
+      - "${SIGNOZ_BIND_ADDR:-0.0.0.0}:${SIGNOZ_OTLP_GRPC_PORT:-40317}:4317"
+      - "${SIGNOZ_BIND_ADDR:-0.0.0.0}:${SIGNOZ_OTLP_HTTP_PORT:-40318}:4318"
     configs:
       - source: ingester-config
         target: /etc/otel-collector-config.yaml

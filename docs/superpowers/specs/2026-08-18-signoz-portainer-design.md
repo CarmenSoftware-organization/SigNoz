@@ -63,11 +63,11 @@ Foundry ไม่ได้แทนที่ Docker — มันเป็นต
 ```
                     Portainer host (~4 GB)
  ┌──────────────────────────────────────────────────────────┐
- │  :8080 ──► signoz ────────────┐                          │
+ │ :48080 ──► signoz ────────────┐                          │
  │            (UI + query + alerts + opamp:4320)            │
  │                               │                          │
- │  :4317 ──► ingester ──────────┼──► clickhouse ◄── keeper │
- │  :4318     (otel-collector)   │      (:9000/:8123)  :9181│
+ │ :40317 ──► ingester ──────────┼──► clickhouse ◄── keeper │
+ │ :40318     (otel-collector)   │      (:9000/:8123)  :9181│
  │                               └──────────┘               │
  │                                                          │
  │  [run-once]  user-scripts ──► โหลด histogramQuantile     │
@@ -252,9 +252,9 @@ pin ตามที่ตรวจสอบจาก Docker Hub เมื่อ 
 
 | ตัวแปร | ค่า default | ใช้ทำอะไร |
 |---|---|---|
-| `SIGNOZ_UI_PORT` | `8080` | port ของ UI บน host |
-| `SIGNOZ_OTLP_GRPC_PORT` | `4317` | OTLP/gRPC |
-| `SIGNOZ_OTLP_HTTP_PORT` | `4318` | OTLP/HTTP |
+| `SIGNOZ_UI_PORT` | `48080` | port ของ UI บน host |
+| `SIGNOZ_OTLP_GRPC_PORT` | `40317` | OTLP/gRPC |
+| `SIGNOZ_OTLP_HTTP_PORT` | `40318` | OTLP/HTTP |
 | `SIGNOZ_BIND_ADDR` | `0.0.0.0` | จำกัดให้ฟังเฉพาะ LAN ได้ |
 
 ### ข้อกำหนดเบื้องต้น
@@ -270,8 +270,8 @@ Carmen dev services รันคนละเครื่องกับ Portaine
 
 | Port | Protocol | ใช้กับ |
 |---|---|---|
-| `4317` | OTLP/gRPC | Go services (`micro-cronjobs`, `micro-report`, `micro-data`) |
-| `4318` | OTLP/HTTP | NestJS, browser |
+| `40317` | OTLP/gRPC | Go services (`micro-cronjobs`, `micro-report`, `micro-data`) |
+| `40318` | OTLP/HTTP | NestJS, browser |
 
 **ไม่มี authentication** — SigNoz OSS ไม่มี ingestion key ใครยิงถึง port นี้ยัดข้อมูลเข้ามาได้ไม่จำกัด
 ถ้าเครื่องมี public IP ให้ตั้ง `SIGNOZ_BIND_ADDR` เป็น IP ของ LAN interface
@@ -282,7 +282,7 @@ Carmen dev services รันคนละเครื่องกับ Portaine
 |---|---|---|
 | `carmen-turborepo-backend-v2` | NestJS 11 + Bun | `@opentelemetry/sdk-node` + `OTEL_EXPORTER_OTLP_ENDPOINT` — ดูความเสี่ยงด้านล่าง |
 | `carmen` (micro-business) | NestJS + Prisma | เหมือนบน + `@prisma/instrumentation` |
-| `micro-cronjobs` / `micro-report` / `micro-data` | Go + Gin | `otelgin` + `otlptracegrpc` → `:4317` — **แนะนำเริ่มที่นี่** ไม่มีเงื่อนไข runtime ซ่อนอยู่ |
+| `micro-cronjobs` / `micro-report` / `micro-data` | Go + Gin | `otelgin` + `otlptracegrpc` → `:40317` — **แนะนำเริ่มที่นี่** ไม่มีเงื่อนไข runtime ซ่อนอยู่ |
 | `carmen-inventory-frontend-react` | React 19 + Vite | ต้องเพิ่ม CORS ที่ receiver ก่อน ดูด้านล่าง |
 
 **ความเสี่ยง: OTel auto-instrumentation บน Bun**
@@ -315,7 +315,7 @@ receiver ตัว default ไม่มี `cors` เลย browser จะโด
 `ingester` ไม่ได้ใช้ config จากไฟล์โดยตรง แต่รับจาก OpAMP server ที่ฝังใน `signoz`
 ตราบใดที่ยังไม่มี organization OpAMP server จะ resolve `orgId` ไม่ได้ แล้วส่ง **no-op pipeline**
 ลงมาแทน receiver `otlp` ถูกนิยามในไฟล์แต่ไม่ถูกต่อเข้า pipeline ใดเลย จึงไม่มีอะไร listen
-บน 4317/4318 อาการที่ผู้ใช้เห็นคือ `curl: (56) Recv failure: Connection reset by peer`
+บน OTLP port อาการที่ผู้ใช้เห็นคือ `curl: (56) Recv failure: Connection reset by peer`
 ซึ่งดูเหมือนระบบพัง ทั้งที่เป็นพฤติกรรมปกติของ SigNoz v0.137.1
 
 ยืนยันแล้ว 3 ทางตอน implement: `/proc/net/tcp` ในคอนเทนเนอร์ไม่มี listener,
@@ -392,7 +392,7 @@ docker compose -f docker-compose.signoz-portainer.yaml config
 
 **ด่าน 2 — ยกทั้ง stack ขึ้นจริงบน Mac (แนะนำ)**
 
-พิสูจน์ว่า service ขึ้นครบ 6 ตัว, migration ผ่าน, UI เปิดได้ที่ `localhost:8080`
+พิสูจน์ว่า service ขึ้นครบ 6 ตัว, migration ผ่าน, UI เปิดได้ที่ `localhost:48080`
 ข้อจำกัด: Mac มี RAM มากกว่า 4 GB ด่านนี้พิสูจน์ **correctness** ได้
 แต่พิสูจน์ **ว่าอยู่ในงบ RAM** ไม่ได้ ต้องไปวัดจริงบน Portainer
 
@@ -401,7 +401,7 @@ docker compose -f docker-compose.signoz-portainer.yaml config
 ยิง trace ปลอม 1 span ด้วย `curl` เปล่าๆ ไม่ต้องลง SDK:
 
 ```bash
-curl -X POST http://<host>:4318/v1/traces \
+curl -X POST http://<host>:40318/v1/traces \
   -H 'Content-Type: application/json' \
   -d @test-trace.json
 ```
