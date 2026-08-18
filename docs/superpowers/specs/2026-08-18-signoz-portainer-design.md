@@ -108,7 +108,7 @@ SigNoz ใช้ที่นี่เก็บแค่ dashboard / alert rule /
 
 | Service | `mem_limit` | จูนเพิ่ม |
 |---|---:|---|
-| `clickhouse` | 1.4 g | `max_server_memory_usage: 1073741824`, `mark_cache_size: 268435456` |
+| `clickhouse` | 1.4 g | ดูตารางค่าจูนด้านล่าง |
 | `signoz` | 600 m | — |
 | `ingester` | 400 m | `send_batch_size` 50000 → 5000, เพิ่ม `memory_limiter` ทั้งใน `processors:` และใน `service.pipelines.*.processors` ทุก pipeline (เป็นตัวแรกเสมอ) |
 | `keeper` | 200 m | `snapshots_to_keep: 2` |
@@ -119,9 +119,22 @@ SigNoz ใช้ที่นี่เก็บแค่ dashboard / alert rule /
 `max_server_memory_usage_to_ram_ratio` อ่าน RAM ของ host ไม่ใช่ของ cgroup
 บนเครื่อง 4 GB มันจะคำนวณจาก 4 GB แล้วจองเกิน `mem_limit` → โดน OOM-kill
 
-นอกจากสองคีย์ข้างต้น อาจต้องลด background merge pool ลงด้วยเพื่อคุม memory spike ตอน merge
-ชื่อ key ที่ถูกต้องของ ClickHouse 25.12.5 **ต้องยืนยันตอน implement** ด้วยด่าน 2 ของแผนการตรวจสอบ
-(ตั้ง key ผิด ClickHouse จะขึ้นได้แต่แค่ log warning ทิ้ง — เงียบเกินกว่าที่จะปล่อยผ่าน)
+### ค่าจูน ClickHouse ทั้งหมด
+
+ยืนยันชื่อและค่า default จาก source ของ ClickHouse `v25.12.5.44-stable` โดยตรง
+(`src/Core/ServerSettings.cpp`, `src/Core/Defines.h`) ทุกตัวเป็น server setting ระดับ root ของ config
+
+| Setting | default ของ ClickHouse | ค่าที่เราตั้ง | เหตุผล |
+|---|---:|---:|---|
+| `max_server_memory_usage` | `0` (ไม่จำกัด) | `1073741824` (1 GiB) | เพดานตายตัว ไม่พึ่ง ratio |
+| `mark_cache_size` | `5 GiB` | `268435456` (256 MiB) | default ตั้งมาสำหรับ server ระดับ production |
+| `index_mark_cache_size` | `5 GiB` | `134217728` (128 MiB) | ตัวคู่ของ mark cache รวมกัน default 10 GiB |
+| `background_pool_size` | `16` | `4` | จำกัด merge ที่รันพร้อมกัน |
+| `background_merges_mutations_concurrency_ratio` | `2` | `2` | คงเดิม |
+| `background_common_pool_size` | `8` | `2` | งาน GC ของ MergeTree |
+| `background_schedule_pool_size` | `512` | `32` | 512 thread เป็นตัวเลขสำหรับ cluster ใหญ่ |
+
+`uncompressed_cache_size` **ไม่ต้องตั้ง** — `DEFAULT_UNCOMPRESSED_CACHE_MAX_SIZE` เป็น `0` อยู่แล้ว
 
 ### ปิด system log tables ของ ClickHouse
 
@@ -132,6 +145,14 @@ config ที่ Foundry generate เปิดไว้ทั้งหมด: `m
 
 **เก็บไว้เฉพาะ `query_log`** (มีประโยชน์ตอน debug ว่า query ไหนช้า) ที่เหลือปิดหมด
 ประหยัดทั้ง RAM buffer และลด background merge ที่เป็นสาเหตุหลักของ OOM บนเครื่องเล็ก
+
+**วิธีปิดคือลบ key ทิ้งเฉยๆ ไม่ต้องใช้ `remove="1"`** — `src/Interpreters/SystemLog.cpp:167`
+เขียนไว้ว่า `if (!config.has(config_prefix))` แล้ว log ว่า *"Not creating X.Y since corresponding
+section is missing from config"* แปลว่า system log ถูกสร้างต่อเมื่อมี section ใน config เท่านั้น
+config ของ SigNoz ที่ list ทุก log ไว้คือตัวที่เปิดมันด้วยตัวเอง
+
+ใช้ได้เพราะ `CLICKHOUSE_CONFIG` ชี้ไปที่ `config-0-0.yaml` ซึ่ง **แทนที่** config หลักของ image ทั้งหมด
+ไม่ใช่การ merge ทับ
 
 ---
 
