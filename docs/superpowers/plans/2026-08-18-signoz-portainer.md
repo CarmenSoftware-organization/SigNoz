@@ -947,11 +947,16 @@ START_NS=$(( NOW_NS - 500000000 ))
 TRACE_ID=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
 SPAN_ID=$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')
 
+RESP_BODY=$(mktemp)
+trap 'rm -f "$RESP_BODY"' EXIT
+
 echo "ส่ง trace ไปที่ ${ENDPOINT}/v1/traces"
 echo "  service.name = smoke-test"
 echo "  trace_id     = ${TRACE_ID}"
 
-HTTP_CODE=$(curl -sS -o /tmp/signoz-smoke-resp.json -w '%{http_code}' \
+# ต้องมี || HTTP_CODE=000 ไม่งั้น set -e จะฆ่า script ทันทีที่ curl ต่อไม่ติด
+# ซึ่งเป็นอาการที่เจอบ่อยที่สุดตอน stack ยังไม่ได้สร้าง admin account
+HTTP_CODE=$(curl -sS -o "$RESP_BODY" -w '%{http_code}' \
   -X POST "${ENDPOINT}/v1/traces" \
   -H 'Content-Type: application/json' \
   -d "{
@@ -975,14 +980,37 @@ HTTP_CODE=$(curl -sS -o /tmp/signoz-smoke-resp.json -w '%{http_code}' \
       }]
     }]
   }]
-}")
+}") || HTTP_CODE=000
 
 echo "HTTP ${HTTP_CODE}"
-cat /tmp/signoz-smoke-resp.json
+cat "$RESP_BODY"
 echo
 
+if [ "${HTTP_CODE}" = "000" ]; then
+  cat >&2 <<'MSG'
+
+ไม่ผ่าน: ต่อ endpoint ไม่ได้เลย ไม่ได้รับ HTTP status กลับมา
+
+สาเหตุที่พบบ่อยที่สุดคือยังไม่ได้สร้าง admin account ของ SigNoz
+collector ตัวนี้รับ config จาก OpAMP server ที่ฝังอยู่ใน signoz
+ตราบใดที่ยังไม่มี organization มันจะรัน no-op pipeline
+และไม่มีอะไร listen บน 4317/4318 เลย
+
+แก้: เปิด SigNoz UI แล้วสมัคร admin หรือเรียก API
+  curl -X POST <signoz-url>/api/v1/register -H 'Content-Type: application/json' \
+    -d '{"email":"...","password":"...","orgName":"...","name":"..."}'
+
+เช็คสถานะ: curl -sS <signoz-url>/api/v1/version แล้วดูฟิลด์ setupCompleted
+รอประมาณ 30 วินาทีหลังสมัครเสร็จ แล้วรัน script นี้ใหม่
+
+ถ้า setupCompleted เป็น true อยู่แล้ว ให้ตรวจว่า container ingester ขึ้นจริง
+และ port ถูก publish ออกมาที่ host หรือไม่
+MSG
+  exit 1
+fi
+
 if [ "${HTTP_CODE}" != "200" ]; then
-  echo "ไม่ผ่าน: คาดหวัง HTTP 200" >&2
+  echo "ไม่ผ่าน: คาดหวัง HTTP 200 แต่ได้ ${HTTP_CODE}" >&2
   exit 1
 fi
 
@@ -1058,8 +1086,21 @@ docker exec signoz-telemetrystore-clickhouse-0-0 clickhouse-client -q \
 
 คาดหวัง: count มากกว่า 0
 
-สุดท้ายเปิดเบราว์เซอร์ที่ `http://localhost:8080` -> Services
-ต้องเห็น service ชื่อ `smoke-test` **นี่คือ gate ของ task นี้ ห้าม commit ถ้ายังไม่เห็น**
+สุดท้ายยืนยันว่า query path ของ SigNoz มองเห็น service นี้จริง ใช้ API ไม่ใช่เบราว์เซอร์
+เพราะรันซ้ำได้และให้หลักฐานที่ตรวจสอบได้ (เบราว์เซอร์เรียก endpoint เดียวกันนี้):
+
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/services \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer <token>" \
+  -d '{"start":<start_ns>,"end":<end_ns>}'
+```
+
+ต้องมี `"serviceName":"smoke-test"` พร้อม `numCalls` มากกว่า 0
+**นี่คือ gate ของ task นี้ ห้าม commit ถ้ายังไม่เห็น**
+
+หมายเหตุ: ต้องสร้าง admin account ก่อนถึงจะเรียก API นี้ได้ (ดู README ขั้นที่ 1)
+ถ้ายังไม่ได้สร้าง จะต่อ port 4318 ไม่ติดตั้งแต่แรกอยู่แล้ว
 
 - [ ] **Step 10: วัด memory จริงเทียบกับงบ**
 
@@ -1256,7 +1297,45 @@ SigNoz เลิกแจก `docker-compose.yaml` แล้ว เปลี่�
 ยัดข้อมูลเข้ามาได้ไม่จำกัดจนดิสก์เต็ม ถ้าเครื่องอยู่บนอินเทอร์เน็ต ให้ตั้ง
 `SIGNOZ_BIND_ADDR` เป็น IP ของ LAN interface หรือกันด้วย firewall
 
-## หลัง deploy — ตั้ง retention (ห้ามข้าม)
+## หลัง deploy ขั้นที่ 1 — สร้าง admin account (ต้องทำก่อนทุกอย่าง)
+
+**stack จะไม่รับ telemetry เลยจนกว่าจะทำขั้นนี้** และอาการที่เจอจะดูเหมือนระบบพัง
+
+`ingester` ไม่ได้อ่าน config จากไฟล์ตรงๆ แต่รับ config จาก OpAMP server ที่ฝังอยู่ใน `signoz`
+(`ws://signoz-signoz-0:4320/v1/opamp`) ตราบใดที่ยังไม่มี organization ในระบบ OpAMP server
+จะ resolve `orgId` ของ agent ไม่ได้ แล้วส่ง **no-op pipeline** ลงมาแทน — receiver `otlp`
+ถูกนิยามไว้ในไฟล์แต่ไม่ได้ถูกต่อเข้า pipeline ไหนเลย **จึงไม่มีอะไร listen บน 4317/4318**
+
+อาการ: `curl: (56) Recv failure: Connection reset by peer`
+และใน log ของ `signoz` จะเห็น `"cannot create agent without orgId"` ซ้ำทุก 30 วินาที
+
+เลือกทำอย่างใดอย่างหนึ่ง:
+
+**ทางที่ 1 — ผ่าน UI (แนะนำ)** เปิด `http://<host>:8080` แล้วกรอกหน้าสมัครที่ขึ้นมาให้
+
+**ทางที่ 2 — ผ่าน API** ถ้าเข้าเบราว์เซอร์ไม่ได้:
+
+```bash
+curl -X POST http://<host>:8080/api/v1/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"<password>","orgName":"Carmen","name":"Admin"}'
+```
+
+password ต้องยาว >= 12 ตัวและมีตัวพิมพ์ใหญ่ พิมพ์เล็ก ตัวเลข และสัญลักษณ์
+
+หลังสร้างเสร็จรอประมาณ 30 วินาที (รอบ poll ของ OpAMP) `signoz` จะ push pipeline จริงลงไป
+ยืนยันได้จาก log ของ `ingester` ที่จะขึ้น `Config has changed, reloading` ตามด้วย
+`Starting GRPC/HTTP server` จากนั้น 4317/4318 ถึงจะเปิดรับจริง
+
+ตรวจสถานะได้จาก:
+
+```bash
+curl -sS http://<host>:8080/api/v1/version
+```
+
+`"setupCompleted":false` = ยังไม่ได้สร้าง admin, `true` = เรียบร้อย
+
+## หลัง deploy ขั้นที่ 2 — ตั้ง retention (ห้ามข้าม)
 
 ค่า default ของ SigNoz คือ traces/logs 15 วัน metrics 30 วัน ซึ่งมากเกินไปสำหรับเครื่อง 4 GB
 ถ้าไม่ตั้ง ดิสก์จะเต็มแล้ว ClickHouse จะเข้าสถานะ read-only
@@ -1273,6 +1352,8 @@ ClickHouse ลบข้อมูลด้วย TTL ที่ทำงานต�
 หลังลด retention ต้องรอ merge รอบถัดไป
 
 ## ตรวจว่าใช้งานได้จริง
+
+ทำหลังจากสร้าง admin account แล้วเท่านั้น ไม่งั้นจะได้ connection reset
 
 ยิง trace ปลอมเข้าไป 1 span ไม่ต้องลง SDK อะไรเลย:
 
@@ -1322,7 +1403,9 @@ Carmen รันคนละเครื่อง ให้ตั้ง endpoint
 | Deploy ไม่ผ่าน "port is already allocated" | port ชนของเดิม | ตั้ง `SIGNOZ_UI_PORT` / `SIGNOZ_OTLP_*_PORT` ใหม่ |
 | `migrator` restart วนไม่จบ | ClickHouse ยังไม่พร้อม | ปกติหายเอง ถ้าเกิน 5 นาทีให้ดู log |
 | UI ขึ้นแต่ไม่มีข้อมูล / query error | ดิสก์เต็ม ClickHouse เป็น read-only | ลด retention แล้วรอ merge |
+| ยิง trace แล้ว `curl: (56) Connection reset by peer` ที่ 4318 | ยังไม่ได้สร้าง admin account → collector รัน no-op pipeline ไม่มีอะไร listen | ทำขั้นตอน "หลัง deploy ขั้นที่ 1" ให้เสร็จก่อน |
 | ยิง trace แล้ว HTTP 200 แต่ UI ไม่เห็น service | `ingester` เขียนลง ClickHouse ไม่ได้ | ดู log ของ `ingester` หาคำว่า `clickhouse` |
+| `keeper` ตาย exit 137 ก่อนตัวอื่น | 200m คือ limit ที่ตึงที่สุดในทั้ง stack | ขึ้นเป็น `300m` — งบรวมยังเหลือเยอะ |
 
 **exit code 137 = 128 + 9 (SIGKILL)** เป็นลายเซ็นของ OOM-killer เสมอ
 ถ้าเห็นเลขนี้แปลว่า kernel เป็นคนฆ่าเพราะ memory ไม่ใช่แอปพังเอง

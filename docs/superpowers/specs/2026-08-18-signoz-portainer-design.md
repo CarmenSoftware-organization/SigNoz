@@ -115,6 +115,14 @@ SigNoz ใช้ที่นี่เก็บแค่ dashboard / alert rule /
 | `migrator` / `user-scripts` | 256 m | run-once คืน RAM หลังจบ |
 | **รวมตอนรัน** | **~2.6 g** | headroom ~800 MB สำหรับ merge / query spike |
 
+**ผลวัดจริงตอน implement** (`docker stats` หลังประมวลผล span แรก บน macOS/arm64):
+`clickhouse` 269 MiB, `keeper` 135 MiB, `signoz` 41 MiB, `ingester` 34 MiB — **รวม 479 MiB**
+ต่ำกว่าเพดานที่ตั้งไว้มาก แปลว่า `mem_limit` ไม่ได้ตึงเกินไป
+แต่ **นี่เป็นการวัดตอน idle ที่มี span เดียว ไม่ได้พิสูจน์พฤติกรรมตอนรับ traffic จริง**
+
+จุดที่ต้องจับตา: `keeper` ใช้ 135 จาก 200 MiB = **67%** เป็น service ที่ headroom เหลือน้อยสุด
+ถ้าเจอ exit 137 ให้ขึ้น keeper เป็น 300m ก่อนเป็นอันดับแรก งบรวมยังเหลือเหลือเฟือ
+
 **ต้องใช้ `max_server_memory_usage` เป็นตัวเลขไบต์ตายตัว ห้ามใช้ ratio**
 `max_server_memory_usage_to_ram_ratio` อ่าน RAM ของ host ไม่ใช่ของ cgroup
 บนเครื่อง 4 GB มันจะคำนวณจาก 4 GB แล้วจองเกิน `mem_limit` → โดน OOM-kill
@@ -299,6 +307,24 @@ receiver ตัว default ไม่มี `cors` เลย browser จะโด
 ---
 
 ## 8. Operations
+
+### First-run — สร้าง admin account (ค้นพบตอน implement)
+
+**ต้องทำก่อนคาดหวังว่า telemetry จะไหลเข้า** ไม่มี compose ไหนข้ามขั้นนี้ได้
+
+`ingester` ไม่ได้ใช้ config จากไฟล์โดยตรง แต่รับจาก OpAMP server ที่ฝังใน `signoz`
+ตราบใดที่ยังไม่มี organization OpAMP server จะ resolve `orgId` ไม่ได้ แล้วส่ง **no-op pipeline**
+ลงมาแทน receiver `otlp` ถูกนิยามในไฟล์แต่ไม่ถูกต่อเข้า pipeline ใดเลย จึงไม่มีอะไร listen
+บน 4317/4318 อาการที่ผู้ใช้เห็นคือ `curl: (56) Recv failure: Connection reset by peer`
+ซึ่งดูเหมือนระบบพัง ทั้งที่เป็นพฤติกรรมปกติของ SigNoz v0.137.1
+
+ยืนยันแล้ว 3 ทางตอน implement: `/proc/net/tcp` ในคอนเทนเนอร์ไม่มี listener,
+effective config ที่ `--copy-path` ต่างจากไฟล์ที่ mount เข้าไป, และ log ของ `signoz`
+ขึ้น `"cannot create agent without orgId"` ซ้ำทุก 30 วินาที
+
+แก้ด้วยการสมัครผ่านหน้า UI หรือ `POST /api/v1/register`
+(password >= 12 ตัว มีพิมพ์ใหญ่ พิมพ์เล็ก ตัวเลข สัญลักษณ์)
+เช็คสถานะได้ที่ `GET /api/v1/version` ดูฟิลด์ `setupCompleted`
 
 ### Retention — ขั้นตอนบังคับหลัง deploy
 
