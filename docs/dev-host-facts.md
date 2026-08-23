@@ -158,3 +158,52 @@ receiver ใน compose ไม่มี auth extension ใด ๆ ข้อส�
 
 `40318` ตอบ 404 (ไม่ใช่ connection reset) แปลว่า **มี organization ในระบบแล้ว** — pipeline
 ไม่ได้ถูก rewrite เป็น `nop` ขั้นตอน "สร้าง admin account" ทำไปแล้ว
+
+
+---
+
+## เส้นทาง ingest — พิสูจน์แล้ว 2026-08-23 ~11:00
+
+ยิงจาก **เครื่องนอก LAN ผ่านอินเทอร์เน็ต** เข้า `http://dev.blueledgers.com:40318`
+ทั้ง trace และ log ที่ผูก `trace_id` เดียวกัน
+
+| ยิงอะไร | HTTP | เห็นที่ปลายทาง |
+|---|---|---|
+| `POST /v1/traces` | 200 | Services → `phase0-smoke` P99 = 500.00 ms (ตรงกับ span ที่สร้าง) |
+| `POST /v1/logs` | 200 | Logs Explorer → log record พร้อม facet `INFO` / `dev` |
+
+`trace_id` ที่ใช้: `cf28af447a0eefd73b422b78ae3b56a5`
+
+**สิ่งที่พิสูจน์ได้จากรอบนี้ (ทั้งหมดเป็นสมมติฐานของ spec ที่ยังไม่เคยยืนยัน):**
+
+1. เส้นทาง ingester → ClickHouse → query → UI ทำงานครบทั้ง trace และ log
+2. **log ผูกกับ trace ได้จริง** — หน้า Log details แสดง `trace_id` พร้อมไอคอนลิงก์ไปยัง trace
+3. **`carmen.tenant_id` / `carmen.user_id` เข้าเป็น `type: Tag` (String)** — filter ได้ใน UI
+   ยืนยันว่า convention prefix `carmen.` ใช้ได้ ไม่ชนกับอะไร
+4. `deployment.environment` / `service.name` เข้าเป็น `type: Resource` ถูกต้อง
+5. **ข้อความภาษาไทยใน log body ไม่เพี้ยน**
+
+**ข้อจำกัดของการพิสูจน์นี้:** ยิงจากเครื่องภายนอกผ่าน public endpoint ไม่ใช่จาก VM Carmen
+ผ่าน LAN — ตราบใดที่ endpoint ยังเปิดสาธารณะ (ดูหัวข้อถัดไป) นี่คือเส้นทางเดียวกับที่ app
+จะใช้จริง แต่ถ้าวันหนึ่งปิด public แล้ว **ต้องพิสูจน์เส้นทาง LAN ใหม่**
+
+---
+
+## ความเสี่ยงที่ยอมรับไว้ (ตัดสิน 2026-08-23)
+
+เจ้าของระบบเลือก **เปิดการเข้าถึงผ่านอินเทอร์เน็ตไว้ก่อน ยังไม่แตะ infra** เฟส 0 Task 4
+(ปิด NAT forward) จึงถูกพักไว้ ไม่ใช่ทำแล้วล้มเหลว
+
+สิ่งที่ยังเปิดอยู่และรู้ตัว:
+
+| port | คือ | ความเสี่ยง |
+|---|---|---|
+| 9000 | Portainer (HTTP ล้วน) | คุม Docker ทั้งเครื่อง = สร้าง container ที่ mount `/` ได้ เทียบเท่า root บนทุก stack ของเครื่องนี้ |
+| 40317 / 40318 | OTLP ไม่มี auth | ใครก็ยัด telemetry ได้ไม่จำกัด ดิสก์ 98 GB เป็น LV เดียวกับทุก stack |
+| 48080 | SigNoz UI (HTTP ล้วน) | รหัสผ่าน admin วิ่งแบบอ่านได้ |
+| 8080 | Keycloak | |
+| 3985/3987/3991/3993 | wiki.js | |
+| 5432 | Postgres ของ keycloak | ยังไม่ได้ตรวจว่า NAT forward ออกไปจริงไหม |
+
+**retention ที่ตั้งไว้คือมาตรการเดียวที่กันดิสก์เต็มอยู่ตอนนี้** ถ้ามีคนยิงขยะเข้ามา
+logs 7 วันจะกลายเป็นเพดานความเสียหาย ไม่ใช่แค่ค่านโยบาย
