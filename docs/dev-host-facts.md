@@ -2,7 +2,7 @@
 
 **วัดเมื่อ:** 2026-08-23 (~10:40 +07)
 **วัดยังไง:** Portainer UI + Docker API ผ่าน proxy ของ Portainer (`/api/endpoints/3/docker/*`) และ `curl` จากนอก LAN
-**ยังขาด:** disk ว่างของ host — Portainer ไม่โชว์ (ไม่มี agent) และ exec ผ่าน API ถูกบล็อก (`Forbidden`) ต้องใช้ shell
+**disk วัดเพิ่มเมื่อ:** 2026-08-23 ~10:49 ผ่าน Portainer Console ของ `signoz-telemetrystore-clickhouse-0-0`
 
 > ค่าพวกนี้เก่าได้ ถ้าตัวเลขไม่ตรงกับที่เห็นตอนทำงานจริง ให้เชื่อของจริงแล้วอัปเดตไฟล์นี้
 
@@ -22,9 +22,13 @@
 | Portainer | CE 2.27.8 LTS · endpoint id **3** · เชื่อมผ่าน `/var/run/docker.sock` |
 | stacks / containers | 7 stacks · 18 containers (รัน 16) · 26 volumes · 27 images |
 | Docker footprint | images 9.08 GB · volumes 2.37 GB |
-| **disk ว่าง** | **ยังไม่ได้วัด** |
+| **disk** | **98 GB รวม · ใช้ 34 GB · ว่าง 60 GB (37%)** บน `/dev/mapper/ubuntu--vg-ubuntu--lv` |
 
 **สมมติฐานเดิมของ spec รอบวาง stack ("เครื่อง ~4 GB") ผิด — มี RAM มากกว่านั้นเท่าตัว**
+
+disk เป็น LV เดียวที่ทุกอย่างใช้ร่วมกัน (`/var/lib/docker` อยู่บนนั้นด้วย) — Docker กินไป
+ราว 11.5 GB (images 9.08 + volumes 2.37) ที่เหลืออีกราว 22 GB เป็นของอย่างอื่นบนเครื่อง
+**ดิสก์เต็มจะกระทบทุก stack บนเครื่องนี้พร้อมกัน ไม่ใช่แค่ SigNoz**
 
 ---
 
