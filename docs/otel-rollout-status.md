@@ -1,0 +1,87 @@
+# สถานะการ instrument — บันทึกผลจริง
+
+**อัปเดต:** 2026-08-23
+**spec:** `docs/superpowers/specs/2026-08-23-carmen-otel-instrumentation-design.md`
+**convention:** `docs/otel-conventions.md`
+
+โค้ดครบทั้ง 4 เฟสแล้ว **ทุก repo อยู่บน feature branch ยังไม่ push ยังไม่ merge**
+
+## สิ่งที่ทำไปแล้ว
+
+| repo | branch | ได้อะไร |
+|---|---|---|
+| `micro-report` | `feature/otel-instrumentation` | otelzap + otelgin + OTLP/gRPC ครบสาม signal |
+| `micro-cronjobs` | `feature/otel-instrumentation` | เหมือนบน + **root span ต่อรอบงาน** ที่ `JobExecutor.Execute` |
+| `micro-data` | `feature/otel-instrumentation` | เหมือน micro-report |
+| `carmen-turborepo-backend-v2` | `feature/otel-observability` | `packages/observability` + ยุบ logger 6 สำเนา + ถอด Loki + telemetry proxy ที่ gateway |
+| `carmen-inventory-frontend-react` | `feature/otel-browser-telemetry` | web SDK แบบ dynamic import + ช่อง pre-login |
+| `carmen-platform` | `feature/otel-browser-telemetry` | เหมือนบน (สวิตช์เป็น build-time) |
+| `carmen-inventory-god-mode` | `feature/otel-instrumentation` | `instrumentation.ts` + log ทุก operation ที่ถูก audit |
+
+## ต้องตั้งอะไรถึงจะทำงานจริง
+
+**ไม่ตั้ง = ปิดสนิท** (ไม่ start SDK เลย ไม่ใช่ start แล้วยิงไม่ถึง) ทุกที่ยกเว้นที่ระบุ
+
+| ที่ไหน | ตั้งอะไร |
+|---|---|
+| Go 3 ตัว (`.env` บน dev) | `OTEL_EXPORTER_OTLP_ENDPOINT=http://dev.blueledgers.com:40317` · `DEPLOYMENT_ENVIRONMENT=dev` |
+| NestJS 6 ตัว (`.env` บน dev) | `OTEL_EXPORTER_OTLP_ENDPOINT=http://dev.blueledgers.com:40318` · `DEPLOYMENT_ENVIRONMENT=dev` |
+| gateway (เพิ่มเติม) | `TELEMETRY_ANONYMOUS_ENABLED=false` ถ้าจะปิดช่อง pre-login |
+| `carmen-inventory-frontend-react` | `"OTEL_ENABLED": true` ใน `public/config.json` ของ environment นั้น |
+| `carmen-platform` | `REACT_APP_OTEL_ENABLED=true` **ตอน build** (ไม่ใช่ runtime — ดูข้อ 6 ข้างล่าง) |
+| god-mode | `OTEL_EXPORTER_OTLP_ENDPOINT=http://dev.blueledgers.com:40318` |
+
+`public/config*.json` และ `apps/*/.env` ถูก gitignore — **ต้องเติมด้วยมือทุกที่**
+
+## กับดักที่เจอจริงระหว่างทำ (ทุกข้อเสียเวลาไปแล้ว)
+
+**1. semconv ต้องตรงเวอร์ชันกับ SDK (Go)** — `resource.Merge` ตอบ error
+`conflicting Schema URL` ทันทีตอน `Init` ถ้า import semconv คนละเวอร์ชันกับที่
+`resource.Default()` ใช้ **compile ผ่านแต่รันไม่ได้** เจอตอนรันครั้งแรกเท่านั้น
+
+**2. `deployment.environment` ไม่ใช่ `deployment.environment.name`** — semconv 1.43
+เปลี่ยนชื่อคีย์แล้ว แต่ **SigNoz index ตัวชื่อเดิม** ทุก repo จึงตั้งคีย์นี้ตรง ๆ
+ไม่ผ่าน helper ของ semconv ยึดตามที่ปลายทางเข้าใจ ไม่ใช่ spec ล่าสุด
+
+**3. พึ่ง signal handler อย่างเดียว = ข้อมูลหาย** — NodeSDK ลง handler ของตัวเองไว้ด้วย
+ตัวไหนเรียก `process.exit` ก่อน อีกตัวถูกตัดกลางคัน **ยิง log 4 อันไม่ถึงสักอันโดยไม่มี
+error ใด ๆ** ต้อง export `shutdownTelemetry()` ให้เรียกตรง ๆ ได้เสมอ
+
+**4. `NODE_ENV` ใช้เป็น `deployment.environment` ไม่ได้** — บน dev มันถูกตั้งเป็น
+`production` (ดู `docker-compose.yml`) ถ้าใช้ ข้อมูล dev จะไปปนกับ prod
+
+**5. ของเดิมที่ยิงผิดที่มาตลอด** — `gateway` กับ `micro-business` มี `tracing.ts`
+และ `.env` ตั้ง `OTEL_EXPORTER_OTLP_ENDPOINT=http://dev.blueledgers.com:4318` อยู่แล้ว
+**ไม่มีอะไรฟังที่ 4318** (ที่ publish คือ 40318) ทั้งคู่จึงรัน SDK ยิงเข้าที่ตายแล้ว retry
+มาตลอด — ถอดออกและแทนที่แล้ว
+
+**6. สวิตช์ของ `carmen-platform` เป็น build-time** — Vite แทน `import.meta.env` ตอน
+build ถ้าไม่ตั้ง `REACT_APP_OTEL_ENABLED=true` ตอนนั้น เงื่อนไขกลายเป็น false แล้ว
+dynamic import ถูกตัดทิ้งทั้งก้อน (ไม่มี chunk telemetry ออกมาเลย) **เปิดทีหลังต้อง
+build ใหม่ ไม่ใช่แก้ config** ต่างจาก SPA หลักที่เป็น runtime
+
+**7. header ของ exporter ต้องเป็นฟังก์ชัน** — ฝั่งเบราว์เซอร์ถ้าส่ง object ที่ประเมิน
+ค่าแล้ว token จะถูกแช่ตั้งแต่ init แล้ว 401 เงียบ ๆ หลัง refresh รอบแรก
+
+**8. `propagateTraceHeaderCorsUrls`** — web SDK ไม่ใส่ `traceparent` ให้ request ข้าม
+origin โดย default ลืมแล้วจะได้ trace เบราว์เซอร์กับ backend เป็นคนละเส้น
+
+## ที่จงใจไม่ทำ
+
+- **ไม่ปิด port สาธารณะ** (เฟส 0 Task 4) — เจ้าของระบบสั่งให้เปิดไว้ก่อน
+  รายการที่ยังเปิดอยู่และความเสี่ยงอยู่ใน `dev-host-facts.md`
+- **ไม่ push ไม่ merge** ทุก repo อยู่บน branch รอตรวจ
+- **ไม่แตะ `.env` บน dev server** — แก้แต่ `.env.example` และไฟล์ในเครื่อง local
+- **ไม่ไล่ให้ auto-instrumentation ทำงานเต็มรูปแบบบน Bun** (god-mode) เป็น spike แยก
+
+## ที่ยังไม่ได้พิสูจน์
+
+ทุกอย่างข้างบนทดสอบจาก **เครื่อง dev ของผู้พัฒนา ยิงข้ามอินเทอร์เน็ตเข้า SigNoz**
+ยังไม่มีอะไรรันบน VM จริงเลย — สิ่งที่ยังไม่รู้:
+
+- service จริงบน dev ยิงถึงไหม (น่าจะถึง เพราะ endpoint เปิดสาธารณะ)
+- `otelgin` / `HttpInstrumentation` สร้าง span ของ request จริงได้ครบไหม
+  (ทดสอบแล้วเฉพาะ span ที่สร้างเอง)
+- trace ไหลข้าม service จริงไหม (สถาปัตยกรรมเอื้อ — RPC เป็น HTTP จริง — แต่ยังไม่เห็นกับตา)
+- Prisma query span ขึ้นไหม
+- volume จริงต่อวันเท่าไร ซึ่งเป็นตัวตัดสินว่า retention ที่ตั้งไว้พอหรือไม่
