@@ -4,7 +4,15 @@
 **spec:** `docs/superpowers/specs/2026-08-23-carmen-otel-instrumentation-design.md`
 **convention:** `docs/otel-conventions.md`
 
-โค้ดครบทั้ง 4 เฟสแล้ว **ทุก repo อยู่บน feature branch ยังไม่ push ยังไม่ merge**
+**merge เข้า main และ push ครบ 8 repo แล้ว (23 ส.ค. 12:1x)** — CI deploy ขึ้น dev สำเร็จ
+ทั้ง `carmen-turborepo-backend-v2`, `micro-report`, `micro-cronjobs`
+
+ยืนยันจากภายนอกว่าโค้ดใหม่ขึ้นจริง: `POST /telemetry/v1/anonymous/logs` ตอบ **503**
+(`anonymous telemetry disabled`) ซึ่งเป็น controller ตัวใหม่ตอบเอง เพราะยังไม่ได้ตั้ง
+`OTEL_EXPORTER_OTLP_ENDPOINT` บนเครื่อง — พิสูจน์ทั้งว่า route ถูก deploy แล้วและ
+สวิตช์ปิดทำงานถูกต้อง
+
+**telemetry ยังไม่ทำงานจนกว่าจะตั้ง env ตามตารางข้างล่าง**
 
 ## สิ่งที่ทำไปแล้ว
 
@@ -62,6 +70,24 @@ build ใหม่ ไม่ใช่แก้ config** ต่างจาก SP
 
 **7. header ของ exporter ต้องเป็นฟังก์ชัน** — ฝั่งเบราว์เซอร์ถ้าส่ง object ที่ประเมิน
 ค่าแล้ว token จะถูกแช่ตั้งแต่ init แล้ว 401 เงียบ ๆ หลัง refresh รอบแรก
+
+**9. Go toolchain บน dev เตี้ยกว่าที่ dependency ต้องการ** — การเพิ่ม OTel ดันกราฟ
+module ทั้งชุดไปเกินที่เครื่องรองรับ (ไม่ใช่แค่ OTel v1.45 เอง แต่ gin, `golang.org/x/*`
+และ grpc-gateway ที่พ่วงมาด้วย) deploy ล้มด้วย
+`go.mod requires go >= 1.25.0 (running go 1.24.13; GOTOOLCHAIN=local)`
+
+โชคดีที่สคริปต์ deploy มี `set -e` จึงล้มก่อนถึงขั้น restart — binary เก่ายังเสิร์ฟต่อ
+ไม่มีอะไรล่ม แต่ก็ไม่มีอะไรขึ้นเช่นกัน
+
+แก้ด้วย `export GOTOOLCHAIN=auto` ในเส้นทาง deploy ทั้งสาม (workflow ของ micro-report
+กับ micro-cronjobs และ `deploy/deploy.sh` ของ micro-data) ให้ go โหลด toolchain ที่
+ต้องการมาเอง แทนการรั้งทั้ง dependency graph ไว้ให้เข้ากับเครื่องเดียว — เครื่องเข้าถึง
+module proxy อยู่แล้วเพราะ build ต้องใช้ จึงไม่ต้องแก้อะไรบนเซิร์ฟเวอร์
+ทางนี้ยังแก้ `micro-data` ที่ติด `rogpeppe/go-internal` ซึ่งไม่เกี่ยวกับ OTel เลยไปด้วย
+
+**หมายเหตุ:** workflow `Deploy micro-cronjob` (ตัวที่ deploy ไป AWS ไม่ใช่ dev) ยังล้มอยู่
+ที่ `Configure AWS credentials` — **ล้มทุกครั้งย้อนไปถึงมิถุนายน 2026** เป็นของเดิม
+ไม่เกี่ยวกับงานนี้
 
 **8. `propagateTraceHeaderCorsUrls`** — web SDK ไม่ใส่ `traceparent` ให้ request ข้าม
 origin โดย default ลืมแล้วจะได้ trace เบราว์เซอร์กับ backend เป็นคนละเส้น
