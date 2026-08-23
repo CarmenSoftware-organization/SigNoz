@@ -143,13 +143,20 @@ curl -sS http://<host>:<ui-port>/api/v1/version
 ค่า default ของ SigNoz คือ traces/logs 15 วัน metrics 30 วัน ซึ่งมากเกินไปสำหรับเครื่อง 4 GB
 ถ้าไม่ตั้ง ดิสก์จะเต็มแล้ว ClickHouse จะเข้าสถานะ read-only
 
-เข้า SigNoz UI -> **Settings** -> **Retention** แล้วตั้ง:
+เข้า SigNoz UI -> **Settings** -> **Workspace** -> **RETENTION CONTROLS**
+(เมนู "Retention" ไม่มีแล้วใน v0.137.1 และหน่วยของ Metrics เป็น **Months** ไม่ใช่ Days)
 
-| ประเภท | ค่าที่แนะนำ |
-|---|---|
-| Traces | 3 วัน |
-| Logs | 3 วัน |
-| Metrics | 7 วัน |
+ค่าที่ตั้งไว้จริงบน dev เมื่อ 2026-08-23 ตอนที่ disk ว่าง 60 GB จาก 98 GB:
+
+| ประเภท | ค่า | หน่วยในหน้าจอ |
+|---|---|---|
+| Traces | 3 | Days |
+| Logs | 7 | Days |
+| Metrics | 1 | Months |
+
+**อย่ายืนยันผลจากหน้าจอ** — UI ไม่ยิงขอค่า logs ตอนโหลดหน้า และ TTL ถูกแยกเป็นสองระบบ
+(traces/metrics อยู่ API v1, logs อยู่ v2 custom retention) รายละเอียดและวิธีถาม API
+ให้ตรงระบบอยู่ใน `docs/dev-host-facts.md`
 
 ClickHouse ลบข้อมูลด้วย TTL ที่ทำงานตอน background merge ดิสก์จะไม่ลดลงทันที
 หลังลด retention ต้องรอ merge รอบถัดไป

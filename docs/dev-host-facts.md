@@ -103,21 +103,36 @@ ClickHouse กับ Keeper ไม่ publish ออกมาเลย ถูก
 
 ---
 
-## Retention — ยังเป็น default ทั้งหมด
+## Retention — ตั้งแล้ว 2026-08-23
 
-| signal | ค่าปัจจุบัน |
-|---|---|
-| Metrics | **1 Months** |
-| Traces | **15 Days** |
-| Logs | **15 Days** |
+| signal | ก่อน | หลัง | เก็บที่ |
+|---|---|---|---|
+| Traces | 15 Days | **3 Days** (`traces_ttl_duration_hrs: 72`) | v1 (legacy) |
+| Logs | 15 Days | **7 Days** (`default_ttl_days: 7`) | **v2 custom retention** |
+| Metrics | 1 Months | 1 Months (`metrics_ttl_duration_hrs: 720`) — ไม่แตะ | v1 (legacy) |
 
-**ขั้นตอนบังคับหลัง deploy ("ห้ามข้าม" ใน `README.md`) ไม่เคยถูกทำ** ตอนนี้ไม่มีผลเพราะยังไม่มี
-ข้อมูล แต่ถ้าเฟส 1 เริ่มยิงโดยไม่แก้ก่อน จะเก็บของ 15 วันทันที
+ตัดสินจาก disk ว่าง 60 GB (ชั้น `> 50 GB` ของตารางในแผนเฟส 0)
 
-**`README.md` ชี้ทางผิดสำหรับ v0.137.1** — ไม่มีเมนู "Retention" หน้าที่ใช้จริงคือ
+### กับดักสามชั้นของ retention บน v0.137.1
+
+**1. `README.md` ชี้เมนูผิด** — ไม่มี "Settings → Retention" แล้ว ของจริงอยู่ที่
 **Settings → Workspace → RETENTION CONTROLS** และหน่วยของ Metrics เป็น **Months** ไม่ใช่ Days
 
----
+**2. TTL แยกเป็นสองระบบ ไม่มีที่ไหนบอกไว้**
+
+- traces + metrics → API **v1** (`GET /api/v1/settings/ttl?type=…` เป็นตัวจริง)
+- logs → **v2 custom retention** (`POST /api/v2/settings/ttl` body `{type, defaultTTLDays}`)
+- `POST /api/v1/settings/ttl` ตายแล้ว ตอบ 500 `"SetTTLV2 only supported"`
+- `POST /api/v2/settings/ttl` กับ `type: "traces"` ตอบ 400
+  `"custom retention TTL only supported for logs"`
+
+**3. `GET /api/v1/settings/ttl?type=logs` คืน `-1` ทั้งที่ตั้งค่าไว้แล้ว** — เพราะ v1 ไม่รู้จัก
+logs อีกต่อไป **อย่าอ่าน `-1` ว่า "ไม่มี TTL"** ต้องถาม v2 สำหรับ logs เท่านั้น
+(`GET /api/v2/settings/ttl` ไม่สนใจ `?type=` — ตอบ record ของ logs ให้ทุก type)
+
+**4. UI ไม่ยิงขอค่า logs ตอนโหลดหน้า** — `performance.getEntriesByType('resource')` เห็นแค่
+`type=metrics` กับ `type=traces` ตัวเลข logs บนจอจึงไม่ใช่ค่าที่ยืนยันจาก server
+**ห้ามใช้หน้าจอเป็นหลักฐาน ให้ถาม API**
 
 ## Service Accounts
 
