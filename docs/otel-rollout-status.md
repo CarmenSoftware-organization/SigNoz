@@ -100,14 +100,31 @@ origin โดย default ลืมแล้วจะได้ trace เบรา
 - **ไม่แตะ `.env` บน dev server** — แก้แต่ `.env.example` และไฟล์ในเครื่อง local
 - **ไม่ไล่ให้ auto-instrumentation ทำงานเต็มรูปแบบบน Bun** (god-mode) เป็น spike แยก
 
+## พิสูจน์แล้วด้วยข้อมูลจริงบน dev (23 ส.ค. 13:38)
+
+หลัง restart ครบทุก service พร้อม env — **8 service รายงานเข้า SigNoz**
+(cronjobs, business, gateway, data, keycloak, cluster, notification, file)
+
+| ข้อสมมติที่ค้างมาตลอด | ผล |
+|---|---|
+| `otelgin` / `HttpInstrumentation` เก็บ span ของ request จริง | ✅ ทุก service มี span จาก traffic จริง |
+| **trace ไหลข้าม service** | ✅ trace `0e157127…` = 4 span 2 service: `POST backend-gateway 35.23ms` → `POST micro-cluster 24.67ms` โดย `parent_span_id` ผูกกันจริง |
+| DB query span | ✅ `pg.query:SELECT/BEGIN/COMMIT`, `pg.connect`, `pg-pool.connect` ซ้อนอยู่ใต้ span ของ service |
+| root span ของ cron | ✅ `micro-cronjobs` P99 376 ms จากงานตามตารางจริง ไม่ใช่ span ที่สร้างเอง |
+| shutdown flush | ✅ เห็น `shutting down…` / `scheduler stopped` ใน SigNoz — บั๊กที่เคยทำ log หายเกลี้ยง แก้ถูกแล้ว |
+| `deployment.environment` | ✅ facet `dev` ใช้ filter ได้ |
+
+span ที่ยืนยัน propagation มี `http.url: http://localhost:5014/rpc/…` และ
+`http.user_agent: axios/1.19.0` — คือ `@repo/nest-http-transport` ตามที่ spec คาดไว้ว่า
+"RPC เป็น HTTP จริง จึงได้ propagation ฟรี" ข้อนั้นถูกต้อง
+
 ## ที่ยังไม่ได้พิสูจน์
 
 ทุกอย่างข้างบนทดสอบจาก **เครื่อง dev ของผู้พัฒนา ยิงข้ามอินเทอร์เน็ตเข้า SigNoz**
 ยังไม่มีอะไรรันบน VM จริงเลย — สิ่งที่ยังไม่รู้:
 
-- service จริงบน dev ยิงถึงไหม (น่าจะถึง เพราะ endpoint เปิดสาธารณะ)
-- `otelgin` / `HttpInstrumentation` สร้าง span ของ request จริงได้ครบไหม
-  (ทดสอบแล้วเฉพาะ span ที่สร้างเอง)
-- trace ไหลข้าม service จริงไหม (สถาปัตยกรรมเอื้อ — RPC เป็น HTTP จริง — แต่ยังไม่เห็นกับตา)
-- Prisma query span ขึ้นไหม
-- volume จริงต่อวันเท่าไร ซึ่งเป็นตัวตัดสินว่า retention ที่ตั้งไว้พอหรือไม่
+- **volume จริงต่อวันเท่าไร** — ตัวตัดสินว่า retention (traces 3 วัน / logs 7 วัน) พอหรือไม่
+  ต้องปล่อยให้เดินสักวันสองวันแล้วดู disk
+- **ฝั่ง browser** — SPA, carmen-platform, god-mode ยังไม่ได้ deploy ด้วยสวิตช์เปิด
+- span ระดับ Prisma โดยเฉพาะ (ที่เห็นคือ `pg.*` จาก PgInstrumentation ซึ่งครอบคลุมกว่า
+  แต่ไม่ได้บอกชื่อ model/operation ของ Prisma)
